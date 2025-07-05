@@ -1,0 +1,17 @@
+# Configuration simplifiée pour l'outil de clustering SEO
+
+# Paramètres de clustering
+clustering:
+  min_cluster_size: 5
+  min_samples: 3
+  weight_factor: 1.0
+
+# Paramètres de vectorisation
+vectorization:
+  model_name: "paraphrase-multilingual-MiniLM-L12-v2"
+  batch_size: 32
+
+# Paramètres de performance
+performance:
+  max_keywords: 10000
+  memory_limit_mb: 1024 
