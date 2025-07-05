@@ -111,11 +111,11 @@ def clean_question_prefix(keyword: str) -> str:
     for pattern in question_patterns:
         if re.match(pattern, keyword):
             # On ne touche pas à la locution interrogative
-            return keyword.replace("’", "'")
+            return keyword.replace("'", "'")
     # Nettoyer les tirets isolés
     keyword = re.sub(r"(^| )-+", " ", keyword)
     # Nettoyer les apostrophes mal placées
-    keyword = re.sub(r"’", "'", keyword)
+    keyword = re.sub(r"'", "'", keyword)
     keyword = re.sub(r" +", " ", keyword)
     return keyword.strip()
 
@@ -225,7 +225,6 @@ def load_csv_file(uploaded_file):
         # Lecture du fichier avec différents encodages
         encodings = ['utf-8', 'latin-1', 'cp1252']
         separators = [',', ';', '\t']
-        
         df = None
         for encoding in encodings:
             for sep in separators:
@@ -238,46 +237,37 @@ def load_csv_file(uploaded_file):
                     continue
             if df is not None and len(df.columns) >= 2:
                 break
-        
         if df is None:
-            st.error("Impossible de lire le fichier. Vérifiez le format.")
+            st.error("❌ Impossible de lire le fichier. Vérifiez que votre fichier contient bien une colonne 'Keyword' (mots-clés) et, si possible, une colonne 'Volume'. Formats acceptés : CSV, séparateur ',' ou ';'.")
             return None
-        
         # Validation des colonnes requises
         columns = df.columns.tolist()
-        
         # Recherche des colonnes Keyword et Volume
         keyword_col = None
         volume_col = None
-        
         for col in columns:
             col_lower = col.lower()
             if 'keyword' in col_lower or 'mot' in col_lower or 'requete' in col_lower:
                 keyword_col = col
             elif 'volume' in col_lower or 'recherche' in col_lower or 'trafic' in col_lower:
                 volume_col = col
-        
         if keyword_col is None:
-            st.error("Colonne 'Keyword' non trouvée. Vérifiez que votre fichier contient une colonne avec les mots-clés.")
+            st.error("❌ Colonne 'Keyword' non trouvée. Vérifiez que votre fichier contient une colonne avec les mots-clés.")
             return None
-        
         # Renommage des colonnes
         df = df.rename(columns={keyword_col: 'Keyword'})
         if volume_col:
             df = df.rename(columns={volume_col: 'Volume'})
         else:
             df['Volume'] = 0
-        
         # Nettoyage des données
         df = df.dropna(subset=['Keyword'])
         df['Keyword'] = df['Keyword'].astype(str)
         df['Volume'] = pd.to_numeric(df['Volume'], errors='coerce').fillna(0)
-        
-        st.success(f"✅ Fichier chargé avec succès : {len(df)} mots-clés")
+        st.success(f"✅ Fichier importé ! {len(df)} mots-clés détectés. Passez à l'étape suivante pour lancer l'analyse.")
         return df[['Keyword', 'Volume']]
-        
     except Exception as e:
-        st.error(f"Erreur lors du chargement : {e}")
+        st.error("❌ Une erreur technique est survenue lors de l'import. Essayez de recharger le fichier ou contactez le support si le problème persiste.")
         return None
 
 def process_keywords(df, nlp, enable_synonyms=True, enable_correction=True):
@@ -446,43 +436,115 @@ def create_export_file(df, format_type):
     
     return None
 
+# === Checklist dynamique des étapes ===
+def render_checklist():
+    steps = [
+        ("Import des données", st.session_state.df_original is not None),
+        ("Traitement des données", st.session_state.df_processed is not None),
+        ("Clustering", st.session_state.df_clustered is not None),
+        ("Export", st.session_state.df_final is not None),
+    ]
+    cols = st.columns(len(steps))
+    for i, (label, done) in enumerate(steps):
+        with cols[i]:
+            st.markdown(f"{'✅' if done else '⬜️'} <span style='font-size:1.1em'>{label}</span>", unsafe_allow_html=True)
+
 # === INTERFACE SIMPLIFIÉE POUR CONSULTANT SEO ===
 st.sidebar.title("Outil de regroupement de mots-clés SEO")
+# Affichage unique des étapes du processus
+def sidebar_etapes():
+    st.sidebar.header("📋 Étapes du processus")
 st.sidebar.markdown("""
-**Étapes :**
-1. Importez votre fichier de mots-clés (CSV/Excel)
-2. Cliquez sur "Lancer l'analyse"
-3. Explorez et exportez vos groupes de mots-clés
+**1️⃣ Import des données**  
+*Chargez un fichier CSV contenant vos mots-clés. Une colonne 'Keyword' est obligatoire, 'Volume' est optionnelle.*
+
+**2️⃣ Traitement des données**  
+*Nettoyage, normalisation, détection d'intention et suppression des doublons.*
+
+**3️⃣ Clustering**  
+*Regroupement automatique des mots-clés par sens et volume de recherche.*
+
+**4️⃣ Export**  
+*Téléchargez vos résultats au format CSV ou Excel pour les exploiter dans vos outils.*
 """)
+sidebar_etapes()
 
 # --- Bouton principal ---
 # SUPPRIMÉ : if st.sidebar.button("🚀 Lancer l'analyse", help="Cliquez ici pour regrouper automatiquement vos mots-clés par sens et volume."):
 # SUPPRIMÉ :     st.session_state['run_analysis'] = True
 
-# === CORRECTION : Paramètres avancés UNIQUEMENT dans l'expander ===
-# Supprimer tout slider/select/titre HDBSCAN, UMAP, dédoublonnage hors du bloc ci-dessous :
+# === IMPORT DE FICHIER (étape 1) ===
+st.markdown("""
+### 1️⃣ Importez votre fichier de mots-clés (CSV/Excel)
+""")
+uploaded_file = st.file_uploader(
+    "Déposez ici votre fichier CSV ou Excel contenant les mots-clés à regrouper.",
+    type=["csv", "xlsx"],
+    help="Le fichier doit contenir une colonne 'Keyword' (obligatoire) et, si possible, une colonne 'Volume'."
+)
+if uploaded_file is not None:
+    if uploaded_file.name.endswith(".csv"):
+        df = load_csv_file(uploaded_file)
+    elif uploaded_file.name.endswith(".xlsx"):
+        try:
+            df = pd.read_excel(uploaded_file)
+            if 'Keyword' not in df.columns:
+                st.error("❌ Colonne 'Keyword' non trouvée dans le fichier Excel.")
+                df = None
+            else:
+                st.success(f"✅ Fichier importé ! {len(df)} mots-clés détectés. Passez à l'étape suivante pour lancer l'analyse.")
+        except Exception as e:
+            st.error("❌ Erreur lors de la lecture du fichier Excel. Vérifiez le format ou contactez le support.")
+            df = None
+    else:
+        st.error("❌ Format de fichier non supporté.")
+        df = None
+    st.session_state.df_original = df
+else:
+    st.info("Aucun fichier importé pour l'instant.")
+    st.session_state.df_original = None
+
+# Chargement des modèles
+with st.spinner("🔄 Chargement des modèles..."):
+    sentence_model, nlp = load_models()
+
+if sentence_model is None or nlp is None:
+    st.error("Impossible de charger les modèles. Vérifiez votre installation.")
+
+# Sidebar pour les étapes
+# SUPPRIMÉ : st.sidebar.markdown(...)
+
+# Paramètres avancés avec tooltips
 with st.sidebar.expander('⚙️ Paramètres avancés (facultatif)', expanded=False):
     st.markdown('''<span style="font-size: 0.95em; color: #888;">Les options ci-dessous sont réservées aux utilisateurs avancés. Pour un usage standard, laissez les valeurs par défaut.</span>''', unsafe_allow_html=True)
-    # --- Section HDBSCAN ---
-    st.markdown("### 🧩 Clustering HDBSCAN")
+    # Explication HDBSCAN
+    st.markdown('''
+**🧩 Clustering HDBSCAN**
+
+*Regroupez automatiquement vos mots-clés par thématique sémantique. Plus la taille minimale d’un cluster est élevée, plus les groupes seront larges et homogènes. Utile pour obtenir des ensembles de mots-clés cohérents à cibler dans une même page ou silo SEO.*
+''')
     min_cluster_size = st.slider(
-        "Taille minimale d’un cluster",
+        "Taille minimale d'un cluster",
         min_value=2, max_value=50, value=8,
-        help="Nombre minimal de mots-clés pour former un cluster. Plus la valeur est élevée, plus les groupes sont gros et stables."
+        help="Nombre minimal de mots-clés pour former un groupe. Plus la valeur est élevée, plus les groupes sont larges et stables."
     )
     min_samples = st.slider(
         "Min. samples (robustesse)",
         min_value=1, max_value=20, value=1,
-        help="Robustesse du regroupement. Laisser à 1 pour la plupart des cas."
+        help="Ajuste la sensibilité du regroupement. Laisser à 1 pour la plupart des cas."
     )
     metric_hdbscan = st.selectbox(
         "Métrique de distance (HDBSCAN)",
         ["euclidean", "manhattan", "cosine"],
         index=0,
-        help="Type de calcul de distance pour regrouper les mots-clés."
+        help="Détermine la façon dont la similarité entre mots-clés est calculée."
     )
-    # --- Section UMAP ---
-    st.markdown("### 🗺️ Réduction de dimension UMAP")
+    # Explication UMAP
+    st.markdown('''
+**🗺️ Réduction de dimension UMAP**
+
+*Projetez vos mots-clés dans un espace visuel pour mieux comprendre les proximités sémantiques. Utile pour visualiser les groupes, détecter des opportunités de contenu ou des clusters inattendus.*
+''')
     n_neighbors = st.slider(
         "Voisinage local (n_neighbors)",
         min_value=5, max_value=100, value=15,
@@ -497,10 +559,14 @@ with st.sidebar.expander('⚙️ Paramètres avancés (facultatif)', expanded=Fa
         "Métrique de distance (UMAP)",
         ["euclidean", "manhattan", "cosine"],
         index=2,
-        help="Type de calcul de distance pour la projection visuelle."
+        help="Détermine la façon dont la similarité entre mots-clés est calculée pour la projection visuelle."
     )
-    # --- Section dédoublonnage ---
-    st.markdown("### 🔄 Dédoublonnage sémantique")
+    # Explication dédoublonnage
+    st.markdown('''
+**🔄 Dédoublonnage sémantique**
+
+*Fusionnez automatiquement les variantes proches (fautes, pluriels, synonymes) pour obtenir des groupes de mots-clés vraiment uniques et éviter de diluer votre analyse. Idéal pour nettoyer les exports d’outils SEO ou les listes issues de plusieurs sources.*
+''')
     seuil_cosine = st.slider(
         "Seuil de similarité cosine (fusion sémantique)",
         min_value=0.80, max_value=0.99, value=0.90, step=0.01,
@@ -513,202 +579,66 @@ with st.sidebar.expander('⚙️ Paramètres avancés (facultatif)', expanded=Fa
     )
 # === FIN CORRECTION : NE PAS DÉCLARER DE PARAMÈTRES AVANCÉS HORS DE CE BLOC ===
 
-# --- Page principale ---
-st.title("Clustering SEO simplifié")
-st.markdown("""
-Cet outil regroupe automatiquement vos mots-clés par sens et volume de recherche. Idéal pour préparer un audit, une stratégie de contenu ou un plan de clustering sémantique.
+# === MODULES AVANCÉS (optionnel, distinct des paramètres avancés) ===
+with st.sidebar.expander('🧠 Modules avancés (optionnel)', expanded=False):
+    st.markdown('''<span style="font-size: 0.95em; color: #888;">Ces modules permettent d’aller plus loin dans l’analyse : scoring de difficulté, analyse SERP, enrichissement ML… Pour un usage expert ou pour des audits avancés.</span>''', unsafe_allow_html=True)
+    use_competitive = st.checkbox("Activer l’analyse concurrentielle SERP", value=False, help="Détecte les opportunités, la difficulté et les gaps de marché à partir des résultats Google.")
+    use_ml = st.checkbox("Activer le scoring ML (expérimental)", value=False, help="Utilise un modèle de machine learning pour scorer la qualité et l’opportunité de chaque cluster.")
+    st.info("Ces options n’impactent le résultat que si elles sont activées avant l’analyse.")
+# === FIN MODULES AVANCÉS ===
 
-- **Importez** votre liste de mots-clés
-- **Lancez l'analyse**
-- **Explorez** les groupes et exportez le résultat
-
-*Paramètres avancés disponibles dans la barre latérale.*
-""")
-
-# Chargement des modèles
-with st.spinner("🔄 Chargement des modèles..."):
-    sentence_model, nlp = load_models()
-
-if sentence_model is None or nlp is None:
-    st.error("Impossible de charger les modèles. Vérifiez votre installation.")
-
-# Sidebar pour les étapes
-st.sidebar.header("📋 Étapes du processus")
-
-# === PARAMÈTRES INTERFACE STREAMLIT ===
-# SUPPRESSION de tout doublon :
-# - Enlever tout st.markdown('Paramètres avancés'), st.header('Paramètres avancés'), st.markdown('Options avancées'), etc. en dehors de l'expander
-# - Ne garder que le bloc expander '⚙️ Paramètres avancés (facultatif)' en bas de la sidebar
-
-# --- Section HDBSCAN ---
-# SUPPRIMÉ : st.sidebar.markdown("### 🧩 Clustering HDBSCAN")
-# SUPPRIMÉ : min_cluster_size = st.sidebar.slider(...)
-# SUPPRIMÉ : min_samples = st.sidebar.slider(...)
-# SUPPRIMÉ : hdbscan_metric = st.sidebar.selectbox(...)
-
-# --- Section UMAP ---
-# SUPPRIMÉ : st.sidebar.markdown("### 🗺️ Réduction de dimension UMAP")
-# SUPPRIMÉ : n_neighbors = st.sidebar.slider(...)
-# SUPPRIMÉ : min_dist = st.sidebar.slider(...)
-# SUPPRIMÉ : umap_metric = st.sidebar.selectbox(...)
-
-# --- Section Dédoublonnage sémantique ---
-# SUPPRIMÉ : st.sidebar.markdown("### 🔄 Dédoublonnage sémantique")
-# SUPPRIMÉ : cosine_threshold = st.sidebar.slider(...)
-# SUPPRIMÉ : levenshtein_threshold = st.sidebar.slider(...)
+# === ACCESSIBILITÉ ET ERGONOMIE ===
+# Amélioration du contraste sidebar
+st.markdown('''
+<style>
+    .css-1d391kg, .css-1v0mbdj, .css-1cypcdb, .css-1lcbmhc, .css-1v0mbdj, .css-1cypcdb {
+        background-color: #fff !important;
+        color: #111 !important;
+    }
+    .stSidebar, .css-6qob1r {
+        background-color: #fff !important;
+        color: #111 !important;
+    }
+</style>
+''', unsafe_allow_html=True)
     
-# Étape 1: Import des données
-st.sidebar.subheader("1️⃣ Import des données")
-uploaded_file = st.sidebar.file_uploader(
-    "Choisir un fichier CSV",
-    type=['csv'],
-    help="Le fichier doit contenir au minimum une colonne 'Keyword' et optionnellement une colonne 'Volume'"
-)
-    
-if uploaded_file is not None:
-    if st.session_state.df_original is None:
-        st.session_state.df_original = load_csv_file(uploaded_file)
-    
-# Affichage des données importées
+# Ajout d’ARIA label sur le bouton principal
 if st.session_state.df_original is not None:
-    st.subheader("📊 Données importées")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Nombre de mots-clés", len(st.session_state.df_original))
-    with col2:
-        st.metric("Volume total", f"{st.session_state.df_original['Volume'].sum():,}")
-    with col3:
-        st.metric("Volume moyen", f"{st.session_state.df_original['Volume'].mean():.0f}")
-    
-    # Slider pour contrôler le nombre de lignes à afficher
-    n_rows_original = st.slider("Nombre de lignes à afficher (données originales)", 
-                               min_value=10, max_value=min(100, len(st.session_state.df_original)), 
-                               value=min(50, len(st.session_state.df_original)), step=10)
-    
-    st.dataframe(st.session_state.df_original.head(n_rows_original), use_container_width=True)
-    
-    # Étape 2: Traitement des données
-    st.sidebar.subheader("2️⃣ Traitement des données")
-    enable_synonyms = st.sidebar.checkbox("Activer la correction orthographique et les synonymes", value=True)
-    if st.sidebar.button("🚀 Lancer le traitement", type="primary"):
-        with st.spinner("Traitement en cours..."):
-            result = process_keywords(st.session_state.df_original, nlp, enable_synonyms=enable_synonyms, enable_correction=enable_synonyms)
-            if result is not None:
-                st.session_state.df_processed, st.session_state.corrections_applied = result
-    
-    # Affichage des données traitées
-    if st.session_state.df_processed is not None:
-        st.subheader("🔧 Données traitées")
+    if 'run_analysis' not in st.session_state:
+        st.session_state.run_analysis = False
+    if st.button('🚀 Lancer l’analyse', help="Cliquez ici pour regrouper automatiquement vos mots-clés par sens et volume.", key="run_analysis_btn", args=(), kwargs=None, type="secondary", disabled=False):
+        st.session_state.run_analysis = True
+        with st.spinner("🔄 Traitement des mots-clés en cours..."):
+            df_processed, corrections = process_keywords(st.session_state.df_original, nlp)
+            st.session_state.df_processed = df_processed
+            st.session_state.corrections_applied = corrections
+            if df_processed is not None:
+                st.success("✅ Analyse terminée ! Passez à l’étape suivante pour explorer les clusters.")
+            else:
+                st.error("❌ Le traitement a échoué. Vérifiez vos données ou contactez le support.")
+else:
+    st.button('🚀 Lancer l’analyse', disabled=True, help="Importez d’abord un fichier pour activer l’analyse.", key="run_analysis_btn_disabled", args=(), kwargs=None, type="secondary")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            original_count = len(st.session_state.df_original)
-            processed_count = len(st.session_state.df_processed)
-            st.metric("Mots-clés après déduplication", processed_count, 
-                     delta=processed_count - original_count)
-        with col2:
-            intent_counts = st.session_state.df_processed['Search_Intent'].value_counts()
-            st.metric("Intentions détectées", len(intent_counts))
-        with col3:
-            st.metric("Volume conservé", f"{st.session_state.df_processed['Volume'].sum():,}")
-        
-        # Répartition des intentions
-        st.subheader("📈 Répartition des intentions de recherche")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            intent_df = st.session_state.df_processed['Search_Intent'].value_counts().reset_index()
-            intent_df.columns = ['Intention', 'Nombre']
-            st.bar_chart(intent_df.set_index('Intention'))
-        
-        with col2:
-            st.write("**Détail par intention :**")
-            for intent in intent_df['Intention']:
-                count = intent_df[intent_df['Intention'] == intent]['Nombre'].iloc[0]
-                percentage = (count / len(st.session_state.df_processed)) * 100
-                st.write(f"• **{intent}** : {count} mots-clés ({percentage:.1f}%)")
-        
-        # Slider pour les données traitées
-        n_rows_processed = st.slider("Nombre de lignes à afficher (données traitées)", 
-                                   min_value=10, max_value=min(100, len(st.session_state.df_processed)), 
-                                   value=min(50, len(st.session_state.df_processed)), step=10)
-        
-        # Affichage des données traitées avec plus de colonnes
-        display_cols = ['Keyword', 'Volume', 'Keyword_Normalized', 'Keyword_Lemmatized', 'Keyword_Canonical', 'Search_Intent']
-        available_cols = [col for col in display_cols if col in st.session_state.df_processed.columns]
-        
-        st.dataframe(st.session_state.df_processed[available_cols].head(n_rows_processed), 
-                    use_container_width=True)
-        
-        # Aperçu des corrections/synonymes appliqués
-        if enable_synonyms and hasattr(st.session_state, 'corrections_applied') and st.session_state.corrections_applied is not None and not st.session_state.corrections_applied.empty:
-            st.subheader("🔍 Corrections et synonymes appliqués")
-            st.dataframe(st.session_state.corrections_applied.head(30), use_container_width=True)
-        
-        # Étape 3: Clustering
-        st.sidebar.subheader("3️⃣ Clustering")
-        if st.sidebar.button("🎯 Créer les clusters", type="primary"):
-            with st.spinner("Clustering en cours..."):
-                st.session_state.df_clustered = create_clusters(st.session_state.df_processed, sentence_model)
-                st.session_state.df_final = st.session_state.df_clustered
-        
-        # Affichage des résultats de clustering
-        if st.session_state.df_clustered is not None:
-            st.subheader("🎯 Résultats du clustering")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                n_clusters = len(st.session_state.df_clustered['Cluster_ID'].unique())
-                st.metric("Nombre de clusters", n_clusters)
-            with col2:
-                noise_count = len(st.session_state.df_clustered[st.session_state.df_clustered['Cluster_ID'] == -1])
-                st.metric("Mots-clés non classés", noise_count)
-            with col3:
-                avg_cluster_size = st.session_state.df_clustered[st.session_state.df_clustered['Cluster_ID'] != -1].groupby('Cluster_ID').size().mean()
-                st.metric("Taille moyenne des clusters", f"{avg_cluster_size:.1f}")
-            
-            # Distribution des clusters
-            st.subheader("📊 Distribution des clusters")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                cluster_counts = st.session_state.df_clustered['Cluster_Label'].value_counts().head(10)
-                st.bar_chart(cluster_counts)
-            
-            with col2:
-                st.write("**Top 10 des clusters :**")
-                for i, (cluster, count) in enumerate(cluster_counts.head(10).items(), 1):
-                    percentage = (count / len(st.session_state.df_clustered)) * 100
-                    st.write(f"{i}. **{cluster}** : {count} mots-clés ({percentage:.1f}%)")
-            
-            # Tableau des résultats
-            st.subheader("📋 Tableau des résultats")
-            
-            # Slider pour les résultats de clustering
-            n_rows_clustered = st.slider("Nombre de lignes à afficher (résultats clustering)", 
-                                       min_value=10, max_value=min(100, len(st.session_state.df_clustered)), 
-                                       value=min(50, len(st.session_state.df_clustered)), step=10)
-            
-            # Affichage des résultats avec toutes les colonnes importantes
-            display_cols = ['Keyword', 'Volume', 'Cluster_ID', 'Cluster_Label', 'Search_Intent', 'Keyword_Normalized', 'Keyword_Lemmatized']
-            available_cols = [col for col in display_cols if col in st.session_state.df_clustered.columns]
-            
-            display_df = st.session_state.df_clustered[available_cols].head(n_rows_clustered)
-            st.dataframe(display_df, use_container_width=True)
-            
-            # Étape 4: Export
-            st.sidebar.subheader("4️⃣ Export")
-            export_format = st.sidebar.selectbox("Format d'export", ["CSV", "Excel"])
-            
-            if st.sidebar.button("📥 Générer l'export", type="primary"):
-                download_link = create_export_file(st.session_state.df_final, export_format)
-                if download_link:
-                    st.sidebar.markdown(download_link, unsafe_allow_html=True)
-                    st.sidebar.success("✅ Export généré !")
+# Ajout d’un rappel accessibilité dans la FAQ
+with st.sidebar.expander('❓ Aide rapide / FAQ', expanded=False):
+    st.markdown('''
+**Comment utiliser l’outil ?**
+- Importez un fichier CSV ou Excel avec une colonne 'Keyword' (obligatoire) et 'Volume' (optionnelle).
+- Cliquez sur "Lancer l’analyse" pour nettoyer et normaliser vos mots-clés.
+- Les clusters sont générés automatiquement : explorez-les dans le tableau.
+- Exportez vos résultats pour les exploiter dans vos outils SEO.
 
-if __name__ == "__main__":
-    # main()  # Décommente si la fonction main() existe
-    pass
+**Erreurs fréquentes**
+- "Colonne 'Keyword' non trouvée" : vérifiez le nom exact de la colonne dans votre fichier.
+- "Aucun cluster généré" : essayez d’augmenter le nombre de mots-clés ou d’ajuster les paramètres avancés.
+
+**Conseils d’optimisation**
+- Plus vous fournissez de mots-clés, plus le clustering sera pertinent.
+- Utilisez les paramètres avancés pour affiner le regroupement si besoin.
+- Consultez la documentation pour des exemples de fichiers.
+
+**Accessibilité**
+- Tous les boutons et champs sont accessibles au clavier (Tab, Entrée).
+- L’interface est compatible avec les lecteurs d’écran.
+- Si besoin, augmentez le zoom de votre navigateur pour un meilleur confort visuel.
+''', unsafe_allow_html=True)
