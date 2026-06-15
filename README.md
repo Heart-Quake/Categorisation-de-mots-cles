@@ -1,5 +1,13 @@
 # 🎯 Clustering Sémantique Intelligent de Mots-Clés SEO
 
+## Gouvernance Automation SEO
+
+Statut Lot 4 : **local maintenu, non live pour le moment**.
+
+Cet outil recouvre fortement la `Keyword Categorization App` déjà publiée dans le hub Automation SEO. Il doit rester un laboratoire de clustering sémantique tant qu'une comparaison de sorties n'a pas prouvé qu'il apporte une valeur supérieure ou complémentaire.
+
+Voir : [docs/GOVERNANCE.md](docs/GOVERNANCE.md)
+
 ## 🚀 **Nouveautés - Normalisation Avancée des Mots-clés**
 
 ### ✨ **Système de Normalisation Complet**
